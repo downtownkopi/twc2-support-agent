@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sharp from 'sharp';
 import { getOrCreateSession, touch, withSessionLock } from './sessionStore.js';
 import { runTurn, startConversation, submitIdPhoto, submitMcCertificatePhoto } from './agent.js';
@@ -38,6 +39,35 @@ function getClientIp(req) {
   return req.headers['cf-connecting-ip'] || req.ip;
 }
 
+// IP-based floor under every /api/* route, independent of session ID.
+// The per-session limiters in rateLimit.js (chat/min, uploads/session,
+// identity attempts) are all keyed by session.id — but session.id is a
+// client-supplied header (X-Session-Id), not signed or verified, so an
+// attacker gets a fresh, empty counter for free just by minting a new UUID
+// per request. This sits underneath those as defense-in-depth, and is the
+// only thing capping /api/chat/start at all — that route has no
+// session-scoped limiter since it runs before any session exists, and
+// every hit costs a real LLM call (the bootstrap greeting).
+const generalApiLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  message: { error: 'rate_limited' },
+});
+
+const startChatLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  message: { error: 'rate_limited' },
+});
+
+app.use('/api', generalApiLimiter);
+
 // Session ID comes from an explicit X-Session-Id header (client generates
 // and persists it in localStorage — see public/index.html), not a
 // Set-Cookie'd browser cookie. Discovered via live debugging (design doc
@@ -69,7 +99,7 @@ function startSSE(res) {
 // /api/chat since it happens before any identity attempt and costs one
 // model call regardless of what the worker types (there's no user input
 // yet to abuse).
-app.post('/api/chat/start', jsonBody, async (req, res) => {
+app.post('/api/chat/start', startChatLimiter, jsonBody, async (req, res) => {
   const languageName = SUPPORTED_LANGUAGES[req.body?.language];
   if (!languageName) {
     return res.status(400).json({ error: 'unsupported language' });

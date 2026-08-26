@@ -40,6 +40,16 @@ This repo only owns the `worker ↔ agent ↔ intake-call` slice. The main serve
 
 No worker accounts. A worker proves who they are with an exact **name + FIN + birth year** match against the main app's records (`POST /api/intake/verify-worker`). No partial feedback on mismatch — same generic "couldn't verify" message regardless of which field was wrong, to prevent field-by-field brute forcing, and it doesn't reveal whether "wrong details" or "not a client at all" is the actual reason. Session + IP rate-limited with lockout; CAPTCHA (Cloudflare Turnstile) required starting the second failed attempt. No match → worker is told to visit the TWC2 office in person; there's no online recovery path by design.
 
+## Rate limiting
+
+Three layers, each independent of the others:
+
+- **IP floor** (`express-rate-limit`, in `server.js`): 60 req/min per IP across all `/api/*` routes, 10 req/min per IP on `/api/chat/start` specifically (each hit there is a paid LLM call before any session exists). Keyed by IP, not session — the layer below is bypassable by rotating session ID, so this catches that.
+- **Per-session** (`rateLimit.js`): messages/min, uploads/session, keyed by `session.id`. Cheap and simple, but `X-Session-Id` is client-supplied and unverified, so this alone isn't a real ceiling against a scripted attacker minting new session IDs.
+- **Identity-match specific**: tighter cap + session/IP lockout on `verify_identity` attempts, since that endpoint is an oracle (match/no-match) an attacker could otherwise brute-force.
+
+Cloudflare (edge, in front of all of this) is meant to add a coarser IP/ASN-level layer on top per the original design — the in-app IP floor exists so the service isn't defenseless if that's misconfigured or bypassed by hitting the origin directly.
+
 ## LLM usage
 
 | Purpose | Model | Why |
