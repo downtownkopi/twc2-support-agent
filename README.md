@@ -4,6 +4,12 @@ Public, no-login LLM chat service for migrant workers to self-report case update
 
 **Nothing a worker submits ever writes to a real record directly.** Every submission becomes a `PendingChange` row in the main app, which a caseworker reviews and approves/rejects.
 
+## Walkthrough
+
+Worker picks a language, verifies identity, updates MC status conversationally, then the caseworker sees it land in the main app's review queue with a reference number:
+
+![Walkthrough: language picker, identity verification, MC status update, office info, then the review queue in the main app](docs/screenshots/demo.gif)
+
 ## Architecture
 
 ```mermaid
