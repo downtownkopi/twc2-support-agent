@@ -44,7 +44,7 @@ No worker accounts. A worker proves who they are with an exact **name + FIN + bi
 
 Three layers, each independent of the others:
 
-- **IP floor** (`express-rate-limit`, in `server.js`): 60 req/min per IP across all `/api/*` routes, 10 req/min per IP on `/api/chat/start` specifically (each hit there is a paid LLM call before any session exists). Keyed by IP, not session — the layer below is bypassable by rotating session ID, so this catches that.
+- **IP floor** (`express-rate-limit`, in `server.js`): 60 req/min per IP across all `/api/*` routes, 10 req/min per IP on `/api/chat/start` specifically (each hit there is a paid LLM call before any session exists), 8 req/min per IP on the upload routes (`/api/chat/upload-id`, `/api/chat/upload-mc-certificate`) — tighter than the general cap since a single upload costs far more than a chat message (large-body JSON parse + base64 decode on the main thread, plus real CPU for sharp's resize/re-encode), so the general limit alone would let an attacker spend their whole per-minute budget on the most expensive request type available. Keyed by IP, not session — the layer below is bypassable by rotating session ID, so this catches that.
 - **Per-session** (`rateLimit.js`): messages/min, uploads/session, keyed by `session.id`. Cheap and simple, but `X-Session-Id` is client-supplied and unverified, so this alone isn't a real ceiling against a scripted attacker minting new session IDs.
 - **Identity-match specific**: tighter cap + session/IP lockout on `verify_identity` attempts, since that endpoint is an oracle (match/no-match) an attacker could otherwise brute-force.
 

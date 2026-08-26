@@ -66,6 +66,21 @@ const startChatLimiter = rateLimit({
   message: { error: 'rate_limited' },
 });
 
+// Tighter than the general 60/min floor — a single upload costs far more
+// than a single chat message (large-body JSON.parse + base64 decode on the
+// main thread, plus real CPU time for sharp's resize/re-encode), so the
+// general limit alone lets an attacker spend their whole per-minute budget
+// on the most expensive request type available. Applied on top of, not
+// instead of, generalApiLimiter below.
+const uploadLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
+  message: { error: 'rate_limited' },
+});
+
 app.use('/api', generalApiLimiter);
 
 // Session ID comes from an explicit X-Session-Id header (client generates
@@ -131,7 +146,7 @@ app.post('/api/chat/start', startChatLimiter, jsonBody, async (req, res) => {
 
 // Separate, larger body-size limit than the main chat route — this is the
 // only endpoint that accepts image payloads. See design doc amendment A7.
-app.post('/api/chat/upload-id', express.json({ limit: '12mb' }), async (req, res) => {
+app.post('/api/chat/upload-id', uploadLimiter, express.json({ limit: '12mb' }), async (req, res) => {
   const { imageBase64, mimeType } = req.body || {};
 
   if (typeof imageBase64 !== 'string' || !ALLOWED_IMAGE_TYPES.has(mimeType)) {
@@ -190,7 +205,7 @@ app.post('/api/chat/upload-id', express.json({ limit: '12mb' }), async (req, res
 // validation + EXIF strip) but for a worker's MC/light-duty certificate
 // photo, taken after identity is already verified — see agent.js,
 // submitMcCertificatePhoto.
-app.post('/api/chat/upload-mc-certificate', express.json({ limit: '12mb' }), async (req, res) => {
+app.post('/api/chat/upload-mc-certificate', uploadLimiter, express.json({ limit: '12mb' }), async (req, res) => {
   const { imageBase64, mimeType } = req.body || {};
 
   if (typeof imageBase64 !== 'string' || !ALLOWED_IMAGE_TYPES.has(mimeType)) {
