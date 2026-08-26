@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TWC2 Support Chat</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.4rem; }
+    #app-header { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 16px; text-align: center; }
+    #app-header img { width: 120px; height: 120px; border-radius: 16px; }
+    #app-header h1 { margin: 0; }
+    #lang-intro { font-size: 0.9rem; color: #444; text-align: center; margin: 0; line-height: 1.4; }
+    #lang-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .lang-tile {
+      padding: 20px 8px; font-size: 1.3rem; text-align: center; border: 2px solid #ccc;
+      border-radius: 12px; background: #fafafa; color: #222; cursor: pointer; line-height: 1.3;
+    }
+    .lang-tile:hover, .lang-tile:focus { border-color: #0a5; background: #f0fff8; }
+    .lang-tile .en-name { display: block; font-size: 0.75rem; color: #666; margin-top: 4px; }
+    #log {
+      background: #ecf0f4; border-radius: 16px; padding: 16px 12px; height: 60vh;
+      overflow-y: auto; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .msg {
+      max-width: 78%; padding: 10px 14px; border-radius: 18px; white-space: pre-wrap;
+      word-wrap: break-word; line-height: 1.4; box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+    }
+    .msg.worker { align-self: flex-end; background: #2e2d7a; color: #fff; border-bottom-right-radius: 4px; }
+    .msg.assistant { align-self: flex-start; background: #fff; color: #222; border-bottom-left-radius: 4px; }
+    .msg-meta { display: flex; align-items: center; gap: 6px; margin-top: -4px; }
+    .msg-meta.assistant { align-self: flex-start; }
+    .msg-meta.worker { align-self: flex-end; }
+    .msg-meta .avatar { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; }
+    .msg-meta .timestamp { font-size: 0.7rem; color: #888; }
+    form { display: flex; gap: 8px; }
+    input[type="text"] { flex: 1; padding: 12px 16px; font-size: 16px; border: 1px solid #ccc; border-radius: 24px; outline-color: #2e2d7a; }
+    button {
+      padding: 10px 20px; font-size: 16px; border: none; border-radius: 24px;
+      background: #2e2d7a; color: #fff; cursor: pointer;
+    }
+    button:hover { background: #23225f; }
+    #upload-button { padding: 10px 14px; font-size: 20px; line-height: 1; }
+    #upload-button:disabled { opacity: 0.5; cursor: default; }
+    .msg img.id-thumb { display: block; max-width: 160px; border-radius: 10px; }
+    .extracted-card {
+      align-self: flex-start; background: #fff; border: 1px solid #ddd; border-radius: 14px;
+      padding: 10px 14px; font-size: 0.9rem; box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+    }
+    .extracted-card div { margin-bottom: 2px; }
+    .extracted-card b { color: #2e2d7a; }
+    .office-card {
+      align-self: flex-start; max-width: 78%; background: #fff; border: 1px solid #ddd; border-radius: 14px;
+      padding: 12px 14px; font-size: 0.85rem; box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+      display: flex; gap: 10px;
+    }
+    .office-card-icon { font-size: 1.6rem; }
+    .office-card-title { font-weight: bold; color: #2e2d7a; }
+    .office-card-address, .office-card-hours { color: #555; margin: 2px 0; }
+    .office-card a { color: #2e2d7a; font-weight: bold; text-decoration: none; }
+    .office-card a:hover { text-decoration: underline; }
+    .typing-indicator { align-self: flex-start; display: flex; gap: 4px; padding: 12px 16px; }
+    .typing-indicator span {
+      width: 7px; height: 7px; border-radius: 50%; background: #aaa;
+      animation: typing-bounce 1.1s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typing-bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+      30% { transform: translateY(-5px); opacity: 1; }
+    }
+    #captcha-wrap { display: none; margin-bottom: 12px; }
+    #chat-screen { display: none; }
+  </style>
+</head>
+<body>
+  <div id="app-header">
+    <img src="/assets/twc2-logo.png" alt="TWC2 (Transient Workers Count Too) logo" />
+  </div>
+
+  <div id="lang-screen">
+    <p id="lang-intro">Welcome to TWC2 support chat. Choose your language to start.</p>
+    <div id="lang-grid"></div>
+  </div>
+
+  <div id="chat-screen">
+    <div id="log"></div>
+    <div id="captcha-wrap" class="cf-turnstile" data-sitekey="REPLACE_WITH_TURNSTILE_SITE_KEY" data-callback="onCaptchaSolved"></div>
+    <form id="chat-form">
+      <input type="file" id="id-photo-input" accept="image/jpeg,image/png,image/webp" capture="environment" hidden />
+      <button type="button" id="upload-button" title="Upload a photo of your ID card">📷</button>
+      <input type="file" id="mc-photo-input" accept="image/jpeg,image/png,image/webp" capture="environment" hidden />
+      <button type="button" id="mc-upload-button" title="Upload a photo of your MC certificate">📄</button>
+      <input type="text" id="chat-input" autocomplete="off" placeholder="Type your message..." />
+      <button type="submit" id="send-button">Send</button>
+    </form>
+  </div>
+
+  <script>
+    // Each tile shows "Hello" in that language (native script) as the big
+    // word, with the English language name below it, and sends `code` to
+    // the server — must match support/src/languages.js exactly.
+    // hello/send/placeholder all verified via direct model queries per
+    // language. Sinhala's "hello" (ආයුබෝවන්) was cross-checked twice after
+    // an unrelated earlier query (for its "Send" button label) came back
+    // inconsistent/corrupted across attempts — this one was consistent and
+    // confirmed correct, so it's included. Sinhala's send/placeholder
+    // still stay in English pending a native speaker, per that earlier finding.
+    const LANGUAGES = [
+      { code: 'en', hello: 'Hello', name: 'English', send: 'Send', placeholder: 'Type your message...' },
+      { code: 'bn', hello: 'হ্যালো', name: 'Bengali', send: 'পাঠান', placeholder: 'আপনার বার্তা লিখুন...' },
+      { code: 'my', hello: 'မင်္ဂလာပါ', name: 'Burmese', send: 'ပို့မည်', placeholder: 'သင့်စာသေးကို ရိုက်ထည့်ပါ...' },
+      { code: 'zh', hello: '你好', name: 'Chinese', send: '发送', placeholder: '输入您的消息...' },
+      { code: 'fil', hello: 'Kamusta', name: 'Filipino', send: 'Ipadala', placeholder: 'Ilagay ang iyong mensahe...' },
+      { code: 'hi', hello: 'नमस्ते', name: 'Hindi', send: 'भेजें', placeholder: 'अपना संदेश टाइप करें...' },
+      { code: 'id', hello: 'Halo', name: 'Indonesian', send: 'Kirim', placeholder: 'Ketik pesan Anda...' },
+      { code: 'pa', hello: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ', name: 'Punjabi', send: 'ਭੇਜੋ', placeholder: 'ਆਪਣਾ ਸੁਨੇਹਾ ਟਾਈਪ ਕਰੋ...' },
+      { code: 'si', hello: 'ආයුබෝවන්', name: 'Sinhala', send: 'Send', placeholder: 'Type your message...' },
+      { code: 'ta', hello: 'வணக்கம்', name: 'Tamil', send: 'அனுப்பு', placeholder: 'உங்கள் செய்தியைத் தட்டச்சு செய்யவும்...' },
+      { code: 'te', hello: 'నమస్కారం', name: 'Telugu', send: 'పంపు', placeholder: 'మీ సందేశాన్ని టైప్ చేయండి...' },
+      { code: 'th', hello: 'สวัสดี', name: 'Thai', send: 'ส่ง', placeholder: 'พิมพ์ข้อความของคุณ...' },
+      { code: 'vi', hello: 'Xin chào', name: 'Vietnamese', send: 'Gửi', placeholder: 'Nhập tin nhắn của bạn...' },
+    ];
+
+    const langScreen = document.getElementById('lang-screen');
+    const chatScreen = document.getElementById('chat-screen');
+    const langGrid = document.getElementById('lang-grid');
+    const log = document.getElementById('log');
+    const form = document.getElementById('chat-form');
+    const input = document.getElementById('chat-input');
+    const sendButton = document.getElementById('send-button');
+    const uploadButton = document.getElementById('upload-button');
+    const idPhotoInput = document.getElementById('id-photo-input');
+    const mcUploadButton = document.getElementById('mc-upload-button');
+    const mcPhotoInput = document.getElementById('mc-photo-input');
+    const captchaWrap = document.getElementById('captcha-wrap');
+    let captchaToken = null;
+    const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // client-side pre-check; server enforces its own cap too
+
+    // Session ID lives in localStorage and is sent as an explicit header,
+    // not a browser cookie — see design doc amendment A13. Live debugging
+    // found Safari silently not sending the session cookie back on every
+    // request, so every message landed as a brand-new, memory-less
+    // session (the actual cause of "it forgets my ID photo" — nothing to
+    // do with the LLM flow itself). This also sidesteps the same class of
+    // problem in WhatsApp/Messenger in-app browsers, which workers are
+    // realistically likely to open this link from.
+    function getOrCreateClientSessionId() {
+      let id = localStorage.getItem('support_session_id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('support_session_id', id);
+      }
+      return id;
+    }
+    const SESSION_ID = getOrCreateClientSessionId();
+
+    window.onCaptchaSolved = function (token) {
+      captchaToken = token;
+    };
+
+    // Escape first, then convert **bold** to <strong> — only tag we ever
+    // inject, so escaping raw text first keeps this safe even though bot
+    // replies are LLM output (a user could in principle try to prompt-inject
+    // literal HTML into a reply; escaping means it renders as inert text,
+    // not markup).
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    const TWC2_MAPS_URL = 'https://maps.app.goo.gl/gEXggT5Lg4znrnUs7';
+
+    function renderInlineMarkdown(text) {
+      const bold = escapeHtml(text).replace(/\*\*(.+?)\*\*/gs, '<strong>$1</strong>');
+      return bold.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    }
+
+    // Google-style link preview, shown once under a reply that mentions
+    // the TWC2 office's map link — not a live map embed (would need a
+    // billed Google Maps API key), just a static card with the same
+    // address the model is now grounded on server-side.
+    function appendOfficeCard() {
+      const card = document.createElement('div');
+      card.className = 'office-card';
+      card.innerHTML =
+        '<div class="office-card-icon">📍</div>' +
+        '<div>' +
+        '<div class="office-card-title">TWC2 (Transient Workers Count Too)</div>' +
+        '<div class="office-card-address">180B Bencoolen Street #09-01, The Bencoolen, Singapore 189648</div>' +
+        '<div class="office-card-hours">Open Monday–Friday, 9am–5pm</div>' +
+        '<a href="' + TWC2_MAPS_URL + '" target="_blank" rel="noopener">Open in Google Maps →</a>' +
+        '</div>';
+      log.appendChild(card);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function appendMessage(role, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.innerHTML = renderInlineMarkdown(text);
+      log.appendChild(div);
+
+      // Timestamp shown once per message, right when its bubble is created
+      // — not per chunk, so it doesn't jitter while streaming. Avatar only
+      // for the assistant; the worker doesn't need one, just the time.
+      const meta = document.createElement('div');
+      meta.className = 'msg-meta ' + role;
+      if (role === 'assistant') {
+        const avatar = document.createElement('img');
+        avatar.className = 'avatar';
+        avatar.src = '/assets/bot-avatar.png';
+        avatar.alt = 'TWC2 assistant';
+        meta.appendChild(avatar);
+      }
+      const timestamp = document.createElement('span');
+      timestamp.className = 'timestamp';
+      timestamp.textContent = new Date().toLocaleString([], {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      meta.appendChild(timestamp);
+      log.appendChild(meta);
+
+      log.scrollTop = log.scrollHeight;
+      return div;
+    }
+
+    // Shared by both /api/chat/start and /api/chat: reads SSE frames
+    // (event: chunk|done|error) off a fetch Response body, building up one
+    // assistant bubble as chunks arrive. Not EventSource — it can't POST a
+    // body, so the stream is parsed manually instead.
+    // Shown by callers right before they fetch (covers upload transfer +
+    // server-side processing time, not just the SSE stream itself — the
+    // ID-photo path in particular has a real multi-second gap between tap
+    // and first token, which otherwise looks like a hang), cleared here on
+    // the first real event of any kind.
+    let typingIndicatorEl = null;
+    function showTypingIndicator() {
+      if (typingIndicatorEl) return;
+      typingIndicatorEl = document.createElement('div');
+      typingIndicatorEl.className = 'typing-indicator';
+      typingIndicatorEl.innerHTML = '<span></span><span></span><span></span>';
+      log.appendChild(typingIndicatorEl);
+      log.scrollTop = log.scrollHeight;
+    }
+    function hideTypingIndicator() {
+      if (typingIndicatorEl) {
+        typingIndicatorEl.remove();
+        typingIndicatorEl = null;
+      }
+    }
+
+    // How long to wait for the *next* piece of the response before giving
+    // up and showing an error — covers both a fully-hung fetch (Safari has
+    // been seen, live, to leave a request neither erroring nor resolving —
+    // see design doc) and a genuinely slow model turn. Generous since
+    // OCR+chat round trips can legitimately take a while.
+    const SSE_STEP_TIMEOUT_MS = 25000;
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    async function consumeSSE(response) {
+      if (!response.ok) {
+        hideTypingIndicator();
+        appendMessage('assistant', 'Something went wrong. Please try again.');
+        return;
+      }
+
+      let assistantDiv = null;
+      let gotChunk = false;
+      // Raw accumulated text, re-rendered in full on every chunk rather than
+      // appended as HTML — a **bold** marker can land split across two SSE
+      // chunks, so re-parsing the whole thing each time is what makes that
+      // safe (a lone trailing "*" just stays literal until its pair arrives).
+      let rawText = '';
+
+      const ensureBubble = () => {
+        if (!assistantDiv) assistantDiv = appendMessage('assistant', '');
+        return assistantDiv;
+      };
+
+      const processFrame = (frame) => {
+        const eventMatch = frame.match(/^event: (.+)$/m);
+        const dataMatch = frame.match(/^data: (.+)$/m);
+        if (!dataMatch) return;
+        const eventType = eventMatch ? eventMatch[1] : 'message';
+        const data = JSON.parse(dataMatch[1]);
+        hideTypingIndicator();
+
+        if (eventType === 'chunk') {
+          gotChunk = true;
+          rawText += data.text;
+          const bubble = ensureBubble();
+          bubble.innerHTML = renderInlineMarkdown(rawText);
+          log.scrollTop = log.scrollHeight;
+        } else if (eventType === 'restart') {
+          // Server hit a transient mid-stream failure and is retrying
+          // fresh (see agent.js, streamOnce) — discard the half-built
+          // bubble so the retry's chunks don't get appended onto it.
+          if (assistantDiv) {
+            const meta = assistantDiv.nextSibling;
+            if (meta && meta.classList && meta.classList.contains('msg-meta')) meta.remove();
+            assistantDiv.remove();
+          }
+          assistantDiv = null;
+          rawText = '';
+          gotChunk = false;
+        } else if (eventType === 'extracted') {
+          // Rendered directly from the OCR result, not from model text —
+          // the model is deliberately told not to restate these values
+          // itself (see agent.js, submitIdPhoto / design doc amendment A10).
+          const card = document.createElement('div');
+          card.className = 'extracted-card';
+          card.innerHTML =
+            '<div><b>Name:</b> ' + escapeHtml(data.name) + '</div>' +
+            '<div><b>FIN:</b> ' + escapeHtml(data.fin) + '</div>' +
+            '<div><b>Year of birth:</b> ' + escapeHtml(data.yearOfBirth) + '</div>';
+          log.appendChild(card);
+          log.scrollTop = log.scrollHeight;
+        } else if (eventType === 'extracted-mc') {
+          // Same non-restated-by-model rendering as 'extracted' above, for
+          // an OCR'd MC/light-duty certificate photo instead of an ID card.
+          const card = document.createElement('div');
+          card.className = 'extracted-card';
+          let html =
+            '<div><b>Status:</b> ' + escapeHtml(data.mcStatus) + '</div>' +
+            '<div><b>Received:</b> ' + escapeHtml(data.dateMcInfoReceived) + '</div>' +
+            '<div><b>Expires:</b> ' + escapeHtml(data.dateMcExpires || '-') + '</div>' +
+            '<div><b>MC days:</b> ' + escapeHtml(String(data.mcDaysCumul ?? '-')) + '</div>';
+          if (data.dateLdExpires) {
+            html += '<div><b>Light duty expires:</b> ' + escapeHtml(data.dateLdExpires) + '</div>' +
+              '<div><b>Light duty days:</b> ' + escapeHtml(String(data.ldDaysCumul ?? '-')) + '</div>';
+          }
+          card.innerHTML = html;
+          log.appendChild(card);
+          log.scrollTop = log.scrollHeight;
+        } else if (eventType === 'error') {
+          appendMessage('assistant', data.message);
+          if (data.message.includes(TWC2_MAPS_URL)) appendOfficeCard();
+        } else if (eventType === 'done') {
+          if (!gotChunk && data.reply) appendMessage('assistant', data.reply);
+          if (data.reply && data.reply.includes(TWC2_MAPS_URL)) appendOfficeCard();
+        }
+      };
+
+      try {
+        if (response.body && response.body.getReader) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { value, done } = await withTimeout(reader.read(), SSE_STEP_TIMEOUT_MS);
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const frames = buffer.split('\n\n');
+            buffer = frames.pop();
+            frames.forEach(processFrame);
+          }
+        } else {
+          // Streaming response bodies aren't available (seen live in
+          // Safari — the fetch neither streamed nor errored, just hung
+          // with an empty chat screen and no feedback). Fall back to
+          // waiting for the whole response at once: no live typing
+          // effect, but it actually renders the reply instead of nothing.
+          const fullText = await withTimeout(response.text(), SSE_STEP_TIMEOUT_MS);
+          (fullText + '\n\n').split('\n\n').forEach((frame) => {
+            if (frame) processFrame(frame);
+          });
+        }
+      } catch (err) {
+        hideTypingIndicator();
+        if (!assistantDiv) {
+          appendMessage('assistant', 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.');
+        }
+      }
+    }
+
+    // Guards against a real race: sending a text message while an upload
+    // (or another message) is still in flight interleaves two requests
+    // against the same server-side session, corrupting message order (seen
+    // directly in testing — a confirmation reply landed before the upload's
+    // own OCR turn had finished). Disabling input/send/upload for the
+    // duration of any one request closes that window entirely.
+    function setBusy(busy) {
+      input.disabled = busy;
+      sendButton.disabled = busy;
+      uploadButton.disabled = busy;
+      mcUploadButton.disabled = busy;
+    }
+
+    async function sendMessage(text) {
+      setBusy(true);
+      showTypingIndicator();
+      try {
+        const response = await withTimeout(fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-Session-Id': SESSION_ID },
+          credentials: 'same-origin',
+          body: JSON.stringify({ message: text, captchaToken }),
+        }), SSE_STEP_TIMEOUT_MS);
+
+        if (response.status === 400) {
+          const data = await response.json().catch(() => ({}));
+          if (data.error === 'captcha_required') {
+            hideTypingIndicator();
+            captchaWrap.style.display = 'block';
+            appendMessage('assistant', 'Please complete the verification below, then send your message again.');
+            return;
+          }
+        }
+
+        await consumeSSE(response);
+      } catch (err) {
+        hideTypingIndicator();
+        appendMessage('assistant', 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function appendPhotoBubble(dataUrl) {
+      const div = document.createElement('div');
+      div.className = 'msg worker';
+      const img = document.createElement('img');
+      img.className = 'id-thumb';
+      img.src = dataUrl;
+      img.alt = 'Uploaded ID photo';
+      div.appendChild(img);
+      log.appendChild(div);
+
+      const meta = document.createElement('div');
+      meta.className = 'msg-meta worker';
+      const timestamp = document.createElement('span');
+      timestamp.className = 'timestamp';
+      timestamp.textContent = new Date().toLocaleString([], {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      meta.appendChild(timestamp);
+      log.appendChild(meta);
+
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function uploadIdPhoto(file) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        appendMessage('assistant', 'That photo is too large — please try a smaller one (under 8MB).');
+        return;
+      }
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      appendPhotoBubble(dataUrl);
+
+      const imageBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+
+      setBusy(true);
+      showTypingIndicator();
+      try {
+        const response = await withTimeout(fetch('/api/chat/upload-id', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-Session-Id': SESSION_ID },
+          credentials: 'same-origin',
+          body: JSON.stringify({ imageBase64, mimeType: file.type }),
+        }), SSE_STEP_TIMEOUT_MS);
+
+        if (response.status === 400) {
+          hideTypingIndicator();
+          appendMessage('assistant', "That doesn't look like a readable image — please try a different photo.");
+          return;
+        }
+
+        await consumeSSE(response);
+      } catch (err) {
+        hideTypingIndicator();
+        appendMessage('assistant', 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    uploadButton.addEventListener('click', () => idPhotoInput.click());
+    idPhotoInput.addEventListener('change', () => {
+      const file = idPhotoInput.files[0];
+      idPhotoInput.value = ''; // allow re-selecting the same file later
+      if (file) uploadIdPhoto(file);
+    });
+
+    async function uploadMcCertificatePhoto(file) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        appendMessage('assistant', 'That photo is too large — please try a smaller one (under 8MB).');
+        return;
+      }
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      appendPhotoBubble(dataUrl);
+
+      const imageBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+
+      setBusy(true);
+      showTypingIndicator();
+      try {
+        const response = await withTimeout(fetch('/api/chat/upload-mc-certificate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-Session-Id': SESSION_ID },
+          credentials: 'same-origin',
+          body: JSON.stringify({ imageBase64, mimeType: file.type }),
+        }), SSE_STEP_TIMEOUT_MS);
+
+        if (response.status === 400) {
+          hideTypingIndicator();
+          appendMessage('assistant', "That doesn't look like a readable image — please try a different photo.");
+          return;
+        }
+
+        await consumeSSE(response);
+      } catch (err) {
+        hideTypingIndicator();
+        appendMessage('assistant', 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    mcUploadButton.addEventListener('click', () => mcPhotoInput.click());
+    mcPhotoInput.addEventListener('change', () => {
+      const file = mcPhotoInput.files[0];
+      mcPhotoInput.value = ''; // allow re-selecting the same file later
+      if (file) uploadMcCertificatePhoto(file);
+    });
+
+    async function startChat(languageCode) {
+      langScreen.style.display = 'none';
+      chatScreen.style.display = 'block';
+
+      const lang = LANGUAGES.find((l) => l.code === languageCode);
+      if (lang) {
+        sendButton.textContent = lang.send;
+        input.placeholder = lang.placeholder;
+      }
+
+      setBusy(true);
+      showTypingIndicator();
+      try {
+        const response = await withTimeout(fetch('/api/chat/start', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-Session-Id': SESSION_ID },
+          credentials: 'same-origin',
+          body: JSON.stringify({ language: languageCode }),
+        }), SSE_STEP_TIMEOUT_MS);
+
+        await consumeSSE(response);
+      } catch (err) {
+        hideTypingIndicator();
+        appendMessage('assistant', 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    LANGUAGES.forEach(({ code, hello, name }) => {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'lang-tile';
+      tile.innerHTML = hello + '<span class="en-name">' + name + '</span>';
+      tile.addEventListener('click', () => startChat(code));
+      langGrid.appendChild(tile);
+    });
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      appendMessage('worker', text);
+      input.value = '';
+      sendMessage(text);
+    });
+  </script>
+</body>
+</html>

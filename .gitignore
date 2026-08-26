@@ -1,0 +1,9 @@
+# dependencies
+/node_modules
+
+# environment (contains OPENROUTER_API_KEY, INTAKE_HMAC_SECRET, TURNSTILE_SECRET_KEY)
+.env
+.env.local
+
+# misc
+.DS_Store
