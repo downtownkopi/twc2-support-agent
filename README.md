@@ -59,6 +59,15 @@ Cloudflare (edge, in front of all of this) is meant to add a coarser IP/ASN-leve
 
 Tool-based extraction, not prose-then-parse: the model must call `verify_identity` before discussing any case matter, and `submit_mc_status` only after the worker confirms a plain-language recap. System prompt + tool defs are cached (`cache_control: ephemeral`, same syntax as Anthropic) since they're identical every turn. Replies stream over SSE, parsed manually client-side (`EventSource` can't POST a body, so it's `fetch` + `ReadableStream` instead).
 
+### Tools (`src/agent.js`)
+
+| Tool | Params (required in **bold**) | Purpose |
+|---|---|---|
+| `verify_identity` | **`name`**, **`fin`**, **`yearOfBirth`** | Match worker's name + FIN + birth year against TWC2 records. Must be called before any case discussion. Returns match/no-match only — no other info (prevents field-by-field brute forcing). |
+| `submit_mc_status` | **`mcStatus`** (enum: `MC`, `Light duty`, `No MC or LD`, `Other`), `mcStatusMore`, **`dateMcInfoReceived`**, `dateMcExpires`, `mcDaysCumul`, `dateLdExpires`, `ldDaysCumul`, `mcStatusRemarks` | Submit collected MC status as a `PendingChange` for caseworker review. Only callable after identity verification + worker confirmation of recap. |
+
+`mcStatus` enum mirrors the main app's live "MC status" dropdown exactly — must stay in sync if that dropdown's options change.
+
 ## Key tradeoffs
 
 - **Same VPS as the main app, isolated by Docker container** rather than a separate VPS — cost-driven. Container namespacing stops an app-level compromise here from reading the main server's files/env; it doesn't stop a kernel-level container escape, judged an acceptable risk at this scale.
