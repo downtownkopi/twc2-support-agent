@@ -266,6 +266,11 @@
     }
 
     async function consumeSSE(response) {
+      if (response.status === 429) {
+        hideTypingIndicator();
+        appendMessage('assistant', "You're sending requests a bit fast — please wait a moment and try again.");
+        return;
+      }
       if (!response.ok) {
         hideTypingIndicator();
         appendMessage('assistant', 'Something went wrong. Please try again.');
