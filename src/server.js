@@ -5,9 +5,9 @@ import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sharp from 'sharp';
 import { getOrCreateSession, touch, withSessionLock } from './sessionStore.js';
-import { runTurn, startConversation, submitIdPhoto, submitMcCertificatePhoto } from './agent.js';
+import { runTurn, submitIdPhoto, submitMcCertificatePhoto } from './agent.js';
 import { verifyTurnstile } from './captcha.js';
-import { SUPPORTED_LANGUAGES } from './languages.js';
+import { SUPPORTED_LANGUAGES, GREETINGS } from './languages.js';
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 // Max dimension after resize — controls vision-model token cost, not just
@@ -110,13 +110,17 @@ function startSSE(res) {
 }
 
 // Called once, right after the worker picks a language on the picker
-// screen — see design doc amendment A6. Not rate-limited/captcha-gated like
-// /api/chat since it happens before any identity attempt and costs one
-// model call regardless of what the worker types (there's no user input
-// yet to abuse).
+// screen — see design doc amendment A6. Used to generate the greeting via a
+// real model call every time; now serves a static, pre-verified greeting
+// per language instead (see languages.js, GREETINGS) — the bootstrap
+// instruction never varied, so the model was re-deriving an identical
+// output on every hit of the one endpoint reachable before any
+// session/identity exists to rate-limit against.
 app.post('/api/chat/start', startChatLimiter, jsonBody, async (req, res) => {
-  const languageName = SUPPORTED_LANGUAGES[req.body?.language];
-  if (!languageName) {
+  const languageCode = req.body?.language;
+  const languageName = SUPPORTED_LANGUAGES[languageCode];
+  const greeting = GREETINGS[languageCode];
+  if (!languageName || !greeting) {
     return res.status(400).json({ error: 'unsupported language' });
   }
 
@@ -124,22 +128,12 @@ app.post('/api/chat/start', startChatLimiter, jsonBody, async (req, res) => {
 
   await withSessionLock(session.id, async () => {
     const sendEvent = startSSE(res);
-    try {
-      const { reply } = await startConversation(
-        session,
-        languageName,
-        { ip: getClientIp(req) },
-        (chunk) => sendEvent('chunk', { text: chunk }),
-        () => sendEvent('restart', {}),
-      );
-      sendEvent('done', { reply });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('chat start failed', err);
-      sendEvent('error', {
-        message: 'Having trouble right now — please try again in a moment, or visit the TWC2 office in person.',
-      });
+    if (session.messages.length === 0) {
+      session.preferredLanguage = languageName;
+      session.messages.push({ role: 'assistant', content: greeting });
     }
+    sendEvent('chunk', { text: greeting });
+    sendEvent('done', { reply: greeting });
     res.end();
   });
 });

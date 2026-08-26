@@ -59,6 +59,8 @@ Cloudflare (edge, in front of all of this) is meant to add a coarser IP/ASN-leve
 
 Tool-based extraction, not prose-then-parse: the model must call `verify_identity` before discussing any case matter, and `submit_mc_status` only after the worker confirms a plain-language recap. System prompt + tool defs are cached (`cache_control: ephemeral`, same syntax as Anthropic) since they're identical every turn. Replies stream over SSE, parsed manually client-side (`EventSource` can't POST a body, so it's `fetch` + `ReadableStream` instead).
 
+**The one exception: the opening greeting isn't model-generated anymore.** `/api/chat/start`'s bootstrap instruction never varies, so it was a real, billable model call producing an identical result every time — and the cheapest possible target for abuse, since it's the one endpoint reachable before any session/identity exists to rate-limit against. `languages.js`'s `GREETINGS` freezes the model's own verified output per language (captured via `capture-greetings.mjs`, which reuses the exact production code path); the server now serves it instantly with zero LLM cost. Re-run that script and update `GREETINGS` if the system prompt's substance ever changes enough to drift out of sync with it.
+
 ### Tools (`src/agent.js`)
 
 | Tool | Params (required in **bold**) | Purpose |

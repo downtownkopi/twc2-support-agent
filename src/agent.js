@@ -759,14 +759,17 @@ async function submitMcCertificatePhoto(
   return continueConversation(session, ip, onTextChunk, onRestart);
 }
 
-// Called once, right after the worker picks a language on the picker
-// screen (see design doc amendment A6) — generates the opening greeting in
-// that language via the model itself, rather than 13 hand-translated
-// strings baked into the client (translation-quality risk, and drifts out
-// of sync with the system prompt's actual wording over time). The bootstrap
-// instruction is a hidden user-role message, not a real worker turn, so it
-// doesn't count against CHAT_MAX_TURNS and isn't rendered in the client's
-// chat log (the client only renders the resulting assistant reply).
+// Originally called on every /api/chat/start hit (see design doc amendment
+// A6) to generate the opening greeting via the model itself, rather than 13
+// hand-translated strings baked into the client (translation-quality risk,
+// and drifts out of sync with the system prompt's actual wording over
+// time). The live server now serves a frozen, pre-verified greeting per
+// language instead (languages.js, GREETINGS) — the bootstrap instruction
+// below never varied, so this was a real, billable model call producing an
+// identical result every time, on the one endpoint reachable before any
+// session/identity exists to rate-limit against. Kept here for
+// capture-greetings.mjs, which re-derives GREETINGS from this exact code
+// path whenever the system prompt changes enough to need it.
 async function startConversation(session, languageName, { ip } = {}, onTextChunk = () => {}, onRestart = () => {}) {
   if (session.messages.length > 0) {
     // Already started (e.g. duplicate call) — don't re-greet or reset state.
