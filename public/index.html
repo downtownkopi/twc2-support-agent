@@ -73,6 +73,12 @@
     }
     #captcha-wrap { display: none; margin-bottom: 12px; }
     #chat-screen { display: none; }
+    #chat-header { display: flex; align-items: center; margin-bottom: 8px; }
+    #back-button {
+      background: none; color: #2e2d7a; padding: 6px 10px 6px 0; font-size: 0.9rem;
+      display: flex; align-items: center; gap: 4px;
+    }
+    #back-button:hover { background: none; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -86,6 +92,9 @@
   </div>
 
   <div id="chat-screen">
+    <div id="chat-header">
+      <button type="button" id="back-button" title="Start over and pick a different language">← Back</button>
+    </div>
     <div id="log"></div>
     <div id="captcha-wrap" class="cf-turnstile" data-sitekey="REPLACE_WITH_TURNSTILE_SITE_KEY" data-callback="onCaptchaSolved"></div>
     <form id="chat-form">
@@ -136,6 +145,7 @@
     const mcUploadButton = document.getElementById('mc-upload-button');
     const mcPhotoInput = document.getElementById('mc-photo-input');
     const captchaWrap = document.getElementById('captcha-wrap');
+    const backButton = document.getElementById('back-button');
     let captchaToken = null;
     const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // client-side pre-check; server enforces its own cap too
 
@@ -155,7 +165,10 @@
       }
       return id;
     }
-    const SESSION_ID = getOrCreateClientSessionId();
+    // Reassigned (not just read) when the worker hits Back — see backButton
+    // handler below — so a fresh language pick starts a genuinely new
+    // session server-side instead of resuming the old one mid-conversation.
+    let SESSION_ID = getOrCreateClientSessionId();
 
     window.onCaptchaSolved = function (token) {
       captchaToken = token;
@@ -578,6 +591,23 @@
         setBusy(false);
       }
     }
+
+    // Abandons the old session server-side (it just idle-times-out after 30
+    // min like a closed tab would) rather than trying to reset it in place
+    // — a fresh session ID means the server genuinely starts over (no
+    // identity, no MC-status progress carried over), matching what "pick a
+    // different language" should mean rather than resuming mid-conversation
+    // under a new language label.
+    backButton.addEventListener('click', () => {
+      SESSION_ID = crypto.randomUUID();
+      localStorage.setItem('support_session_id', SESSION_ID);
+      log.innerHTML = '';
+      hideTypingIndicator();
+      captchaToken = null;
+      captchaWrap.style.display = 'none';
+      chatScreen.style.display = 'none';
+      langScreen.style.display = 'block';
+    });
 
     LANGUAGES.forEach(({ code, hello, name }) => {
       const tile = document.createElement('button');
